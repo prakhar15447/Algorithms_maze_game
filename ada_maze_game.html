@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ADA Graph & Pathfinding Sandbox — Dark Maze Edition</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: #0f1115; color: #e2e8f0; font-family: system-ui, -apple-system, sans-serif;
+    display: flex; justify-content: center; min-height: 100vh; padding: 20px;
+  }
+  #app { width: min(1000px, 100vw); position: relative; }
+  h1 { margin: 0 0 4px; font-size: 24px; color: #f8fafc; }
+  .sub { color: #94a3b8; font-size: 14px; margin-bottom: 14px; }
+  
+  #controlPanel {
+    display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+    background: #1e293b; border: 1px solid #334155; border-radius: 8px;
+    padding: 12px 16px; margin-bottom: 12px;
+  }
+  .control-group { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #cbd5e1; }
+  select, button {
+    background: #0f172a; color: #f8fafc; border: 1px solid #475569; padding: 6px 12px;
+    border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 13px;
+    text-transform: uppercase;
+  }
+  button:hover, select:hover { background: #334155; border-color: #64748b; }
+  button:disabled { background: #1e293b; color: #475569; border-color: #1e293b; cursor: not-allowed; }
+  button.hint-btn:disabled { background: #423b18; color: #a19352; border-color: #5c5322; cursor: not-allowed; }
+  button.active { background: #0284c7; border-color: #38bdf8; }
+  button.ability { background: #7c3aed; border-color: #a78bfa; }
+  button.ability:hover { background: #6d28d9; }
+  button.hint-btn { background: #d97706; border-color: #f59e0b; color: #fff; }
+  button.hint-btn:hover:not(:disabled) { background: #b45309; }
+
+  #metrics {
+    display: flex; gap: 20px; background: #111827; border: 1px solid #1f2937; border-radius: 8px;
+    padding: 10px 16px; margin-bottom: 12px; font-size: 13px; font-family: monospace; color: #38bdf8;
+    flex-wrap: wrap;
+  }
+  #metrics span { color: #f3f4f6; font-weight: bold; }
+
+  #gameWrap { position: relative; display: flex; justify-content: center; }
+  canvas {
+    display: block; background: #030712; border: 2px solid #374151; border-radius: 8px;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+    max-width: 100%; height: auto;
+  }
+  
+  #overlay {
+    position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+    background: rgba(3, 7, 18, 0.85); border-radius: 8px; text-align: center; z-index: 10;
+  }
+  .overlay-box { padding: 30px 40px; background: #1e293b; border: 1px solid #475569; border-radius: 12px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5); }
+  .overlay-box h2 { margin-top: 0; font-size: 26px; color: #f8fafc; }
+  .overlay-box p { color: #94a3b8; margin-bottom: 20px; font-size: 14px; }
+  .overlay-box button { background: #2563eb; color: white; padding: 10px 20px; font-size: 15px; border: none; border-radius: 6px; cursor: pointer; }
+  .overlay-box button:hover { background: #1d4ed8; }
+
+  .help { margin-top: 12px; color: #94a3b8; font-size: 13px; line-height: 1.5; background: #1e293b; padding: 10px 14px; border-radius: 8px; border: 1px solid #334155; }
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 10px; font-size: 13px; color: #cbd5e1; }
+  .dot { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <h1>ADA Graph & Pathfinding Sandbox — Dark Maze Edition</h1>
+  <div class="sub">Random monster spawns, 10s persistent chase timer, win/lose overlays, and hint system.</div>
+
+  <div id="controlPanel">
+    <div class="control-group">
+      <label>Difficulty Toggle</label>
+      <button id="difficultyToggle" class="active" onclick="toggleDifficulty()">MODE: EASY</button>
+    </div>
+    <div class="control-group">
+      <label>Maze Generation Algorithm</label>
+      <select id="algoSelect" onchange="changeAlgorithm()">
+        <option value="dfs">DFS</option>
+        <option value="prim">PRIMS</option>
+        <option value="kruskal">KRUSKAL</option>
+      </select>
+    </div>
+    <div class="control-group">
+      <label>Actions</label>
+      <button onclick="initNewMaze()">🔄 REGENERATE MAZE</button>
+    </div>
+
+    <div class="control-group">
+      <label>Assistance</label>
+      <button id="hintBtn" class="hint-btn" onclick="useHint()">HINT 💡</button>
+    </div>
+  </div>
+
+  <div id="metrics">
+    <div>Gen Time: <span id="mTime">0.00</span> ms</div>
+    
+    <div>Shortest Path: <span id="mPathLen">0</span> steps</div>
+    <div>Monster Status: <span id="mStatus" style="color:#f97316">Patrolling</span></div>
+  </div>
+
+  <div id="gameWrap">
+    <canvas id="game" width="820" height="580"></canvas>
+    <div id="overlay">
+      <div class="overlay-box">
+        <h2 id="overlayTitle">CAUGHT!</h2>
+        <p id="overlayText">You were intercepted by an A* monster.</p>
+        <button onclick="initNewMaze()">TRY AGAIN</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="help">
+    <b>Controls:</b> WASD / Arrow Keys to move. Monsters spawn randomly, chase for at least 10s upon sighting, then resume patrolling! 
+  </div>
+  
+  <div class="legend">
+    <span><i class="dot" style="background:#22c55e"></i>Exit</span>
+    <span><i class="dot" style="background:#ef4444"></i>Searching Monster</span>
+    <span><i class="dot" style="background:#f97316"></i>Patrolling Monster</span>
+    <span><i class="dot" style="background:#38bdf8"></i>Player</span>
+    <span><i class="dot" style="background:#6b4f3b"></i>Brick Walls</span>
+  </div>
+</div>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+const COLS = 41, ROWS = 29, CELL = 20;
+const VIEW = 4.3; 
+let viewMode = "easy";
+
+function toggleDifficulty() {
+  viewMode = (viewMode === "hard") ? "easy" : "hard";
+  const btn = document.getElementById("difficultyToggle");
+  btn.textContent = `MODE: ${viewMode.toUpperCase()}`;
+  if (viewMode === "easy") {
+    btn.classList.add("active");
+  } else {
+    btn.classList.remove("active");
+  }
+} 
+let grid, player, exitCell, entities;
+let keys = {};
+let showHintPath = false;
+let hintTimer = 0;
+let hintUsed = false;
+let currentPath = [];
+
+let isGameOver = false;
+
+let lightningTimer = 4, lightningFlash = 0, lightningReveal = 0, lightningState = "waiting_first";
+
+function shuffle(a) {
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function injectLoops() {
+  const loopChance = 0.08;
+  for (let y = 2; y < ROWS - 2; y++) {
+    for (let x = 2; x < COLS - 2; x++) {
+      if (grid[y][x] === 1 && Math.random() < loopChance) {
+        const top = grid[y-1][x] === 0, bot = grid[y+1][x] === 0;
+        const left = grid[y][x-1] === 0, right = grid[y][x+1] === 0;
+        if ((top && bot && !left && !right) || (!top && !bot && left && right)) {
+          grid[y][x] = 0;
+        }
+      }
+    }
+  }
+}
+
+function generateDFS() {
+  grid = Array.from({length: ROWS}, () => Array(COLS).fill(1));
+  const stack = [[1,1]];
+  grid[1][1] = 0;
+  let nodesCount = 1;
+  const dirs = [[2,0],[-2,0],[0,2],[0,-2]];
+
+  while (stack.length) {
+    const [x,y] = stack[stack.length-1];
+    const candidates = shuffle(dirs.slice()).filter(([dx,dy]) => {
+      const nx=x+dx, ny=y+dy;
+      return nx>0 && nx<COLS-1 && ny>0 && ny<ROWS-1 && grid[ny][nx]===1;
+    });
+    if (!candidates.length) { stack.pop(); continue; }
+    const [dx,dy] = candidates[0];
+    grid[y+dy/2][x+dx/2] = 0;
+    grid[y+dy][x+dx] = 0;
+    nodesCount += 2;
+    stack.push([x+dx,y+dy]);
+  }
+  injectLoops();
+  return nodesCount;
+}
+
+function generatePrim() {
+  grid = Array.from({length: ROWS}, () => Array(COLS).fill(1));
+  let nodesCount = 0;
+  const walls = [];
+
+  const addWalls = (x, y) => {
+    [[2,0],[-2,0],[0,2],[0,-2]].forEach(([dx,dy]) => {
+      const nx = x + dx, ny = y + dy;
+      if (nx > 0 && nx < COLS - 1 && ny > 0 && ny < ROWS - 1 && grid[ny][nx] === 1) {
+        walls.push({x: x + dx/2, y: y + dy/2, tx: nx, ty: ny});
+      }
+    });
+  };
+
+  grid[1][1] = 0;
+  nodesCount++;
+  addWalls(1, 1);
+  shuffle(walls);
+
+  while (walls.length > 0) {
+    const wall = walls.pop();
+    if (grid[wall.ty][wall.tx] === 1) {
+      grid[wall.y][wall.x] = 0;
+      grid[wall.ty][wall.tx] = 0;
+      nodesCount += 2;
+      addWalls(wall.tx, wall.ty);
+      shuffle(walls);
+    }
+  }
+  injectLoops();
+  return nodesCount;
+}
+
+function generateKruskal() {
+  grid = Array.from({length: ROWS}, () => Array(COLS).fill(1));
+  let nodesCount = 0;
+  let id = 0;
+  const sets = {};
+  const walls = [];
+
+  for (let y = 1; y < ROWS; y += 2) {
+    for (let x = 1; x < COLS; x += 2) {
+      grid[y][x] = 0;
+      nodesCount++;
+      sets[`${x},${y}`] = id++;
+      if (x + 2 < COLS) walls.push({x: x+1, y: y, c1: `${x},${y}`, c2: `${x+2},${y}`});
+      if (y + 2 < ROWS) walls.push({x: x, y: y+1, c1: `${x},${y}`, c2: `${x},${y+2}`});
+    }
+  }
+
+  shuffle(walls);
+
+  const parent = {};
+  Object.keys(sets).forEach(k => parent[k] = k);
+  function findSet(i) {
+    if (parent[i] === i) return i;
+    return parent[i] = findSet(parent[i]);
+  }
+
+  walls.forEach(w => {
+    let root1 = findSet(w.c1);
+    let root2 = findSet(w.c2);
+    if (root1 !== root2) {
+      parent[root1] = root2;
+      grid[w.y][w.x] = 0;
+    }
+  });
+
+  injectLoops();
+  return nodesCount;
+}
+
+function hasLineOfSight(x1, y1, x2, y2) {
+  let dx = Math.abs(x2 - x1);
+  let dy = Math.abs(y2 - y1);
+  let sx = (x1 < x2) ? 1 : -1;
+  let sy = (y1 < y2) ? 1 : -1;
+  let err = dx - dy;
+  
+  let currX = x1, currY = y1;
+  while (true) {
+    if (currX === x2 && currY === y2) return true;
+    if (grid[currY][currX] === 1 && (currX !== x1 || currY !== y1)) return false;
+    let e2 = 2 * err;
+    if (e2 > -dy) {
+      err -= dy;
+      currX += sx;
+    }
+    if (e2 < dx) {
+      err += dx;
+      currY += sy;
+    }
+  }
+}
+
+function solveAStar(start, goal) {
+  const openSet = [start];
+  const cameFrom = new Map();
+  const gScore = new Map();
+  const fScore = new Map();
+
+  const key = (node) => `${node.x},${node.y}`;
+  gScore.set(key(start), 0);
+  fScore.set(key(start), Math.abs(start.x - goal.x) + Math.abs(start.y - goal.y));
+
+  let nodesExplored = 0;
+
+  while (openSet.length > 0) {
+    openSet.sort((a, b) => (fScore.get(key(a)) || Infinity) - (fScore.get(key(b)) || Infinity));
+    const current = openSet.shift();
+    nodesExplored++;
+
+    if (current.x === goal.x && current.y === goal.y) {
+      const path = [];
+      let curr = { x: current.x, y: current.y };
+      while (cameFrom.has(key(curr))) {
+        path.unshift(curr);
+        curr = cameFrom.get(key(curr));
+      }
+      path.unshift(curr);
+      return { path, nodesExplored };
+    }
+
+    const neighbors = [
+      {x: current.x + 1, y: current.y},
+      {x: current.x - 1, y: current.y},
+      {x: current.x, y: current.y + 1},
+      {x: current.x, y: current.y - 1}
+    ];
+
+    for (const n of neighbors) {
+      if (n.x < 0 || n.y < 0 || n.x >= COLS || n.y >= ROWS || grid[n.y][n.x] === 1) continue;
+      const tentativeG = gScore.get(key(current)) + 1;
+      const nKey = key(n);
+
+      if (tentativeG < (gScore.get(nKey) ?? Infinity)) {
+        cameFrom.set(nKey, {x: current.x, y: current.y});
+        gScore.set(nKey, tentativeG);
+        fScore.set(nKey, tentativeG + Math.abs(n.x - goal.x) + Math.abs(n.y - goal.y));
+        if (!openSet.some(item => item.x === n.x && item.y === n.y)) {
+          openSet.push(n);
+        }
+      }
+    }
+  }
+  return { path: [], nodesExplored };
+}
+
+function getRandomOpenCell(minDistFromPlayer = 10) {
+  let candidates = [];
+  for (let y = 1; y < ROWS - 1; y++) {
+    for (let x = 1; x < COLS - 1; x++) {
+      if (grid[y][x] === 0) {
+        let dist = Math.abs(x - 1) + Math.abs(y - 1);
+        if (dist >= minDistFromPlayer) {
+          candidates.push({x, y});
+        }
+      }
+    }
+  }
+  if (candidates.length === 0) return {x: COLS - 2, y: ROWS - 2};
+  return candidates[Math.floor(Math.random() * candidates.length)];
+}
+
+function initNewMaze() {
+  document.getElementById("overlay").style.display = "none";
+  isGameOver = false;
+  showHintPath = false;
+  hintTimer = 0;
+  hintUsed = false;
+  const hintBtn = document.getElementById("hintBtn");
+  hintBtn.disabled = false;
+  hintBtn.textContent = "HINT 💡";
+
+  const selectedAlgo = document.getElementById("algoSelect").value;
+  const startTime = performance.now();
+  
+  let nodesCount = 0;
+  if (selectedAlgo === 'dfs') nodesCount = generateDFS();
+  else if (selectedAlgo === 'prim') nodesCount = generatePrim();
+  else if (selectedAlgo === 'kruskal') nodesCount = generateKruskal();
+
+  const endTime = performance.now();
+  document.getElementById("mTime").textContent = (endTime - startTime).toFixed(2);
+  
+
+  player = { x: 1, y: 1, facing: "down" };
+  exitCell = { x: COLS - 2, y: ROWS - 2 };
+  grid[exitCell.y][exitCell.x] = 0;
+
+  // Random monster spawning on open floor cells away from player start (1,1)
+  let m1Pos = getRandomOpenCell(12);
+  let m2Pos = getRandomOpenCell(12);
+
+  entities = [
+    { x: m1Pos.x, y: m1Pos.y, type: "hunter", isSearching: false, chaseTimer: 0 },
+    { x: m2Pos.x, y: m2Pos.y, type: "patroller", isSearching: false, chaseTimer: 0 }
+  ];
+
+  
+  lightningTimer = 4.0;
+  lightningState = "waiting_first";
+  lightningFlash = 0;
+  lightningReveal = 0;
+  updatePath();
+}
+
+
+
+function triggerLoss() {
+  isGameOver = true;
+  document.getElementById("overlayTitle").textContent = "CAUGHT!";
+  document.getElementById("overlayText").textContent = "You were intercepted by an A* monster.";
+  document.getElementById("overlay").style.display = "flex";
+}
+
+function triggerWin() {
+  isGameOver = true;
+  document.getElementById("overlayTitle").textContent = "VICTORY! 🎉";
+  document.getElementById("overlayText").textContent = "You successfully navigated the maze graph and reached the exit!";
+  document.getElementById("overlay").style.display = "flex";
+}
+
+function updatePath() {
+  const res = solveAStar({x: player.x, y: player.y}, {x: exitCell.x, y: exitCell.y});
+  currentPath = res.path;
+  document.getElementById("mPathLen").textContent = currentPath.length ? currentPath.length - 1 : 0;
+}
+
+function changeAlgorithm() {
+  initNewMaze();
+}
+
+function useHint() {
+  if (isGameOver || hintUsed) return;
+  hintUsed = true;
+  showHintPath = true;
+  hintTimer = 10; // 10 seconds duration
+  const hintBtn = document.getElementById("hintBtn");
+  hintBtn.disabled = true;
+  hintBtn.textContent = "HINT 💡";
+}
+
+
+
+function isWall(x, y) {
+  return x < 0 || y < 0 || x >= COLS || y >= ROWS || grid[y][x] === 1;
+}
+
+function tryMove(dx, dy) {
+  if (isGameOver) return;
+  const nx = player.x + dx, ny = player.y + dy;
+  if (isWall(nx, ny)) return;
+  player.x = nx; player.y = ny;
+  player.facing = dx === 1 ? "right" : dx === -1 ? "left" : dy === 1 ? "down" : "up";
+
+  updatePath();
+
+  if (player.x === exitCell.x && player.y === exitCell.y) {
+    triggerWin();
+  }
+}
+
+function visible(x, y) {
+  if (viewMode === "easy") return true;
+  if (lightningReveal > 0 || lightningFlash > 0) return true;
+  const dx = x - player.x, dy = y - player.y;
+  return Math.sqrt(dx*dx + dy*dy) <= VIEW;
+}
+
+function update(dt) {
+  if (isGameOver) return;
+
+  if (showHintPath && hintTimer > 0) {
+    hintTimer -= dt;
+    if (hintTimer <= 0) {
+      showHintPath = false;
+      document.getElementById("hintBtn").textContent = "hint (expired)";
+    }
+  }
+
+  if (viewMode === "hard") {
+    lightningTimer -= dt;
+    if (lightningTimer <= 0) {
+      if (lightningState === "waiting_first" || lightningState === "darkness") {
+        lightningFlash = 0.4;
+        lightningReveal = 0.1;
+        lightningState = "illuminating";
+        lightningTimer = 0.1;
+      } else if (lightningState === "illuminating") {
+        lightningReveal = 0;
+        lightningState = "darkness";
+        lightningTimer = 7.0;
+      }
+    }
+    if (lightningFlash > 0) {
+      lightningFlash = Math.max(0, lightningFlash - dt);
+    } else {
+      lightningReveal = Math.max(0, lightningReveal - dt);
+    }
+  }
+
+
+
+  update.moveAcc = (update.moveAcc || 0) + dt;
+  if (update.moveAcc >= 0.12) {
+    update.moveAcc = 0;
+    let dx = 0, dy = 0;
+    if (keys["ArrowUp"] || keys["w"]) dy = -1;
+    else if (keys["ArrowDown"] || keys["s"]) dy = 1;
+    else if (keys["ArrowLeft"] || keys["a"]) dx = -1;
+    else if (keys["ArrowRight"] || keys["d"]) dx = 1;
+    if (dx || dy) tryMove(dx, dy);
+  }
+
+  update.monsterAcc = (update.monsterAcc || 0) + dt;
+  if (update.monsterAcc >= 0.38) {
+    update.monsterAcc = 0;
+    
+    let anySearching = false;
+    entities.forEach(e => {
+      const dist = Math.abs(e.x - player.x) + Math.abs(e.y - player.y);
+      const hasLoS = dist <= 14 && hasLineOfSight(e.x, e.y, player.x, player.y);
+
+      if (hasLoS) {
+        // Spotted! Reset chase timer to at least 10 seconds (26 monster ticks @ 0.38s = ~10s)
+        e.chaseTimer = 26;
+      }
+
+      if (e.chaseTimer > 0) {
+        e.chaseTimer--;
+        e.isSearching = true;
+        anySearching = true;
+        
+        // Chase via A* towards player
+        const res = solveAStar({x: e.x, y: e.y}, {x: player.x, y: player.y});
+        if (res.path.length > 1) {
+          e.x = res.path[1].x;
+          e.y = res.path[1].y;
+        }
+      } else {
+        // Out of chase timer and line of sight -> Patrolling (ORANGE) in the new area
+        e.isSearching = false;
+        const neighbors = [
+          {x: e.x+1, y: e.y}, {x: e.x-1, y: e.y},
+          {x: e.x, y: e.y+1}, {x: e.x, y: e.y-1}
+        ].filter(n => !isWall(n.x, n.y));
+        if (neighbors.length > 0) {
+          const next = neighbors[Math.floor(Math.random() * neighbors.length)];
+          e.x = next.x; e.y = next.y;
+        }
+      }
+
+      if (e.x === player.x && e.y === player.y) {
+        triggerLoss();
+      }
+    });
+
+    if (true) {
+      if (anySearching) {
+        document.getElementById("mStatus").textContent = "Searching";
+        document.getElementById("mStatus").style.color = "#ef4444";
+      } else {
+        document.getElementById("mStatus").textContent = "Patrolling";
+        document.getElementById("mStatus").style.color = "#f97316";
+      }
+    }
+  }
+}
+
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  for (let y = 0; y < ROWS; y++) {
+    for (let x = 0; x < COLS; x++) {
+      if (!visible(x, y)) continue;
+      const px = x * CELL, py = y * CELL;
+      if (grid[y][x] === 1) {
+        ctx.fillStyle = viewMode === "hard" ? "#6b4f3b" : "#1f2937";
+        ctx.fillRect(px, py, CELL, CELL);
+        ctx.strokeStyle = "#111827";
+        ctx.strokeRect(px, py, CELL, CELL);
+      } else {
+        ctx.fillStyle = viewMode === "hard" ? "#161616" : "#0b0f19";
+        ctx.fillRect(px, py, CELL, CELL);
+      }
+    }
+  }
+
+  if (visible(exitCell.x, exitCell.y)) {
+    ctx.fillStyle = "#22c55e";
+    ctx.fillRect(exitCell.x * CELL + 3, exitCell.y * CELL + 3, CELL - 6, CELL - 6);
+  }
+
+
+
+  if (showHintPath && currentPath.length > 0) {
+    ctx.fillStyle = "rgba(245, 158, 11, 0.55)";
+    currentPath.forEach(p => {
+      if (visible(p.x, p.y)) {
+        ctx.fillRect(p.x * CELL + 4, p.y * CELL + 4, CELL - 8, CELL - 8);
+      }
+    });
+  }
+
+  entities.forEach(e => {
+    if (!visible(e.x, e.y)) return;
+    ctx.fillStyle = e.isSearching ? "#ef4444" : "#f97316";
+    ctx.beginPath();
+    ctx.arc(e.x * CELL + CELL/2, e.y * CELL + CELL/2, CELL/2.5, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  if (visible(player.x, player.y)) {
+    ctx.fillStyle = "#38bdf8";
+    ctx.beginPath();
+    ctx.arc(player.x * CELL + CELL/2, player.y * CELL + CELL/2, CELL/2.3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  if (viewMode === "hard") {
+    for (let y = 0; y < ROWS; y++) {
+      for (let x = 0; x < COLS; x++) {
+        if (!visible(x, y)) {
+          ctx.fillStyle = "#000";
+          ctx.fillRect(x * CELL, y * CELL, CELL, CELL);
+        }
+      }
+    }
+
+    if (lightningFlash > 0) {
+      ctx.fillStyle = `rgba(255,255,255,${Math.min(.92, lightningFlash*1.8)})`;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#111"; ctx.font = "bold 16px Arial"; ctx.textAlign = "left"; ctx.textBaseline = "top";
+      ctx.fillText("⚡ LIGHTNING STRIKE", 12, 12);
+    } else if (lightningReveal > 0) {
+      ctx.fillStyle = "rgba(255,255,255,.035)";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#ddd"; ctx.font = "bold 15px Arial"; ctx.textAlign = "left"; ctx.textBaseline = "top";
+      ctx.fillText("⚡ MAZE ILLUMINATED", 12, 12);
+    }
+  }
+}
+
+window.addEventListener("keydown", e => {
+  if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " "].includes(e.key)) e.preventDefault();
+  keys[e.key] = true;
+});
+window.addEventListener("keyup", e => keys[e.key] = false);
+
+let lastTime = 0;
+function loop(t) {
+  const dt = Math.min(0.05, (t - lastTime) / 1000 || 0);
+  lastTime = t;
+  update(dt);
+  draw();
+  requestAnimationFrame(loop);
+}
+
+initNewMaze();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
